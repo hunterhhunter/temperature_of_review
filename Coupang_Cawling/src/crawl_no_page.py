@@ -10,8 +10,6 @@ import requests as rq
 import json
 import numpy as np
 
-
-
 def get_headers(
     key: str,
     default_value: Optional[str] = None
@@ -29,34 +27,53 @@ def get_headers(
             return default_value
         raise EnvironmentError(f'Set the {key}')
     
-def get_product_links(product_list_url: str)-> list:
-    headers = get_headers(key='headers')
-    
-    with rq.Session() as session:
-        response = session.get(product_list_url, headers=headers)
-        soup = bs(response.text, 'html.parser')
-        product_links = [a['href'] for a in soup.select('div ul li a')]
-        return product_links
+
 
 class Coupang:
-    @staticmethod
-    def get_product_code(url: str)-> str:
-        """ 입력받은 URL 주소의 PRODUCT CODE 추출하는 메소드 """
-        prod_code : str = url.split('products/')[-1].split('?')[0]
-        return prod_code
 
     def __init__(self)-> None:
         self.__headers : Dict[str,str] = get_headers(key='headers')
 
-    def main(self)-> List[List[Dict[str,Union[str,int]]]]:
-        # URL 주소
-        URL : str = self.input_review_url()
+    def get_product_code(self, product_link_list: list)-> list:
+        """ 입력받은 URL 주소의 PRODUCT CODE 추출하는 메소드 """
+        prod_code_list = list()
+        for prod_link in product_link_list:
+            prod_code : str = prod_link.split('itemId=')[1].split('&')[0]
+            prod_code_list.append(prod_code)
+        return prod_code_list
 
+    def get_product_links(self, product_list_link: str)-> list:
+        """상품 목록 링크를 입력하면 상품들의 링크 추출하여 리스트로 반환하는 함수"""
+        headers = self.__headers # 헤더 불러오기
+        links = list() # 반환하는 링크 리스트 생성
+        with rq.Session() as session:
+            response = session.get(product_list_link, headers=headers) # 불러온 헤더로 리퀘스트
+            soup = bs(response.text, 'html.parser') # 객체 생성
+            li_tags = soup.select('div > section > form > div:nth-of-type(2) > div:nth-of-type(2) > ul > li') # 상품 id가 저장된 태그 전부 크롤링
+            for li in li_tags: # 링크 재가공
+                id = li.get('id') # 태그에서 id추출
+                vendor_item_id = li.get('data-vendor-item-id') # 태그에서 vendor_item_id 추출
+                link = f'https://www.coupang.com/vp/products/5999714344?itemId={id}&vendorItemId={vendor_item_id}&pickType=COU_PICK&sourceType=srp_product_ads&clickEventId=67ce6baa-73b3-4b93-8325-9476b7933790&korePlacement=15&koreSubPlacement=1&clickEventId=67ce6baa-73b3-4b93-8325-9476b7933790&korePlacement=15&koreSubPlacement=1&q=%ED%82%A4%EB%B3%B4%EB%93%9C&itemsCount=36&searchId=f3ae5c0ca337413a95aad71cd823b793&rank=0'
+                # 링크 재가공 코드
+                links.append(link) # 링크 리스트에 추가
+            return links
+
+    def main(self)-> List[List[Dict[str,Union[str,int]]]]:
+        """모든 함수들 모아서 크롤링 진행하는 main 함수"""
+        URL = self.input_review_url()
+        # URL 주소
+        product_links: list = self.get_product_links(product_list_link=URL)
         # URL의 Product Code 추출
-        prod_code : str = self.get_product_code(url=URL)
+        prod_codes : str = self.get_product_code(product_link_list=product_links)
+
+        page_count = self.input_page_count()
 
         # URL 주소 재가공
-        URLS : List[str] = [f'https://www.coupang.com/vp/product/reviews?productId={prod_code}&page={page}&size=5&sortBy=ORDER_SCORE_ASC&ratings=&q=&viRoleCode=3&ratingSummary=true' for page in range(1,self.input_page_count() + 1)]
+        URLS : List[str] = []
+        for prod_code in prod_codes:
+            for page in range(1, page_count + 1):
+                url = f'https://www.coupang.com/vp/product/reviews?productId={prod_code}&page={page}&size=5&sortBy=ORDER_SCORE_ASC&ratings=&q=&viRoleCode=3&ratingSummary=true'
+                URLS.append(url)
 
         # __headers에 referer 키 추가
         self.__headers['referer'] = URL
@@ -64,7 +81,8 @@ class Coupang:
         with rq.Session() as session:
             return [self.fetch(url=url,session=session) for url in URLS]
 
-    def fetch(self,url:str,session)-> List[Dict[str,Union[str,int]]]:
+    def fetch(self, url:str,session)-> List[Dict[str,Union[str,int]]]:
+        """실질적인 크롤링 데이터 생성 함수"""
         save_data : List[Dict[str,Union[str,int]]] = list()
 
         with session.get(url=url,headers=self.__headers) as response :
@@ -136,6 +154,7 @@ class Coupang:
             return save_data
 
     def input_review_url(self)-> str:
+        """상품 link 입력 함수"""
         while True:
             # Window
             # os.system('cls')
@@ -154,6 +173,7 @@ class Coupang:
             return review_url
 
     def input_page_count(self)-> int:
+        """리뷰 페이지 수 입력 함수"""
         # Window
         # os.system('cls')
         # Mac
@@ -171,6 +191,7 @@ class Coupang:
 class OpenPyXL:
     @staticmethod
     def save_file()-> None:
+        """결과 저장 함수"""
         # 크롤링 결과
         results : List[List[Dict[str,Union[str,int]]]] = Coupang().main()
 
